@@ -4,11 +4,11 @@ const jsonServer = require('json-server')
 const jwt = require('jsonwebtoken')
 
 const server = jsonServer.create()
-const router = jsonServer.router('./database.json')
+const router = jsonServer.router('./barbearia-db.json')
 const userdb = JSON.parse(fs.readFileSync('./users.json', 'UTF-8'))
 
-//server.use(bodyParser.urlencoded({extended: true}))
-//server.use(bodyParser.json())
+server.use(bodyParser.urlencoded({ extended: true }))
+server.use(bodyParser.json())
 server.use(jsonServer.defaults());
 
 const SECRET_KEY = '123456789'
@@ -21,8 +21,22 @@ function createToken(payload){
 }
 
 // Verify the token 
-function verifyToken(token){
-  return  jwt.verify(token, SECRET_KEY, (err, decode) => decode !== undefined ?  decode : err)
+function verifyToken(token) {
+  return jwt.verify(token, SECRET_KEY, (err, decode) => {
+    let result = {};
+    if (decode !== undefined) {
+      result = {
+        success: true,
+        ...decode
+      }
+    } else {
+      result = {
+        success: false,
+        ...err
+      }
+    }
+    return result;
+  })
 }
 
 // Check if the user exists in database
@@ -43,20 +57,30 @@ server.post('/auth/login', (req, res) => {
   res.status(200).json({access_token})
 })
 
-server.use(/^(?!\/auth).*$/,  (req, res, next) => {
-  if (req.headers.authorization === undefined || req.headers.authorization.split(' ')[0] !== 'Bearer') {
-    const status = 401
-    const message = 'Error in authorization format'
-    res.status(status).json({status, message})
-    return
-  }
-  try {
-     verifyToken(req.headers.authorization.split(' ')[1])
-     next()
-  } catch (err) {
-    const status = 401
-    const message = 'Error access_token is revoked'
-    res.status(status).json({status, message})
+server.use(/^(?!\/auth).*$/, (req, res, next) => {
+  const path = req.baseUrl;
+  const blockedEndpoints = ['/schedules'];
+
+  if (blockedEndpoints.indexOf(path) >= 0) {
+    if (req.headers.authorization === undefined || req.headers.authorization.split(' ')[0] !== 'Bearer') {
+      const status = 403
+      const message = 'Error in authorization format'
+      res.status(status).json({ status, message })
+      return
+    }
+    try {
+      const result = verifyToken(req.headers.authorization.split(' ')[1]);
+      if (result.success) {
+        next()
+      } else {
+        throw result;
+      }
+    } catch (err) {
+      const status = 401
+      res.status(status).json(err)
+    }
+  } else {
+    next();
   }
 })
 
